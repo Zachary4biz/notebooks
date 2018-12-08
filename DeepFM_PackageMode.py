@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[1]:
 
 
 import tensorflow as tf
@@ -27,7 +27,7 @@ os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
 # ## 参数类
 
-# In[ ]:
+# In[2]:
 
 
 class config_midas(object):
@@ -73,7 +73,7 @@ class config_midas(object):
         "epoch":8,
         "deep_layers_activation" : tf.nn.relu,
         "batch_norm_decay": 0.9,
-        "deep_layers":[16,8,4,2],
+        "deep_layers":[16,8],
         "learning_rate": 0.001,
         "l2_reg":0.001
     }
@@ -91,13 +91,13 @@ class config_midas(object):
     #     return {key:getattr(instance,key) for key in keys}
 
 
-# In[ ]:
+# In[3]:
 
 
 CONFIG = config_midas()
 
 
-# In[ ]:
+# In[4]:
 
 
 # 输出一下参数
@@ -118,7 +118,7 @@ if not os.path.exists(config_midas.base_save_dir):
 
 # ## log工具 同时输出到文件
 
-# In[ ]:
+# In[5]:
 
 
 import logging
@@ -142,7 +142,7 @@ setup_file_logger(config_midas.base_save_dir+"/auc_logloss.log")
 
 # ## Pre | TFRecord处理
 
-# In[ ]:
+# In[6]:
 
 
 # ******** TFRecord - Dataset 读取**********
@@ -186,7 +186,7 @@ def get_iterator(tfrecord_path,global_all_fields,global_multi_hot_fields,global_
 
 # ## Pre | DeepFM类
 
-# In[ ]:
+# In[7]:
 
 
 class DeepFM(object):
@@ -402,28 +402,10 @@ class DeepFM(object):
                         y_deep_layer_1, inp_train_phase=train_phase, scope_bn="bn_1",inp_batch_norm_decay=batch_norm_decay)
                     y_deep_layer_1 = deep_layers_activation(y_deep_layer_1)
                     y_deep_layer_1 = tf.nn.dropout(y_deep_layer_1, dropout_keep_deep[2])
-                # layer2
-                with tf.name_scope("layer2"):
-                    y_deep_layer_2 = tf.add(
-                        tf.matmul(y_deep_layer_1, weights["layer_2"]),
-                        weights["bias_2"])
-                    y_deep_layer_2 = batch_norm_layer(
-                        y_deep_layer_2, inp_train_phase=train_phase, scope_bn="bn_2",inp_batch_norm_decay=batch_norm_decay)
-                    y_deep_layer_2 = deep_layers_activation(y_deep_layer_2)
-                    y_deep_layer_2 = tf.nn.dropout(y_deep_layer_2, dropout_keep_deep[3])
-                # layer3
-                with tf.name_scope("layer3"):
-                    y_deep_layer_3 = tf.add(
-                        tf.matmul(y_deep_layer_2, weights["layer_3"]),
-                        weights["bias_3"])
-                    y_deep_layer_3 = batch_norm_layer(
-                        y_deep_layer_3, inp_train_phase=train_phase, scope_bn="bn_3",inp_batch_norm_decay=batch_norm_decay)
-                    y_deep_layer_3 = deep_layers_activation(y_deep_layer_3)
-                    y_deep_layer_3 = tf.nn.dropout(y_deep_layer_3, dropout_keep_deep[4])
             # ---------- DeepFM ---------------
             with tf.name_scope("DeepFM"):
                 concat_input = tf.concat(
-                    [y_first_order, y_second_order, y_deep_layer_3], axis=1)
+                    [y_first_order, y_second_order, y_deep_layer_1], axis=1)
                 out = tf.add(
                     tf.matmul(concat_input, weights["concat_projection"]),
                     weights["concat_bias"])
@@ -538,7 +520,7 @@ class DeepFM(object):
                 for dim in shape:
                     variable_parameters *= dim.value
                 total_parameters += variable_parameters
-            print("total_parameters cnt : %s" % total_parameters)
+            myprint("total_parameters cnt : %s" % total_parameters)
 
             inp_tfrecord_path = tf.placeholder(dtype=tf.string, name="tfrecord_path")
             inp_iterator = get_iterator(inp_tfrecord_path,self.global_all_fields,self.global_multi_hot_fields,self.global_numeric_fields,self.max_numeric,self.tmp_map_num_f,self.batch_size)
@@ -585,16 +567,12 @@ class DeepFM(object):
             loss_op = empirical_risk
             if self.l2_reg>0:
                 structural_risk = tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["concat_projection"])
+                structural_risk += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["feature_embeddings"])
+                structural_risk += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["feature_bias"])
                 for i in range(len(self.deep_layers)):
                     structural_risk += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["layer_%d"%i])
                 tf.summary.scalar('structural_risk_L2',structural_risk)
                 loss_op = empirical_risk + structural_risk
-
-            # loss_op = tf.reduce_mean(tf.losses.log_loss(label_op, pred))
-            if self.l2_reg>0:
-                loss_op += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["concat_projection"])
-                for i in range(len(self.deep_layers)):
-                    loss_op += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["layer_%d"%i])
 
             # optimizer
             _optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.9, beta2=0.999,epsilon=1e-8)
@@ -1190,7 +1168,7 @@ class DeepFM(object):
 
 # ## Train |
 
-# In[ ]:
+# In[8]:
 
 
 process = DeepFM(CONFIG.train_tfrecord_file,CONFIG.valid_tfrecord_file,CONFIG.random_seed,CONFIG.base_save_dir,CONFIG.deepfm_param_dicts,CONFIG.data_param_dicts)
