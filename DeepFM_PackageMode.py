@@ -37,7 +37,8 @@ class config_midas(object):
     valid_tfrecord_file = _basePath+"/valid.tfrecord.gz"
     info_file = _basePath+"/info.json"
     # output
-    base_save_dir = "/home/zhoutong/tf_modelInfo/type={type}".format(type="midas")
+    tagTime= time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime(time.time()))
+    base_save_dir = "/home/zhoutong/tf_modelInfo/type={type}/dt={dt}".format(type="midas",dt=tagTime)
     # load-json
     with open(info_file,"r+") as f:
         info = "".join(f.readlines())
@@ -89,6 +90,10 @@ class config_midas(object):
     #     keys = [attr for attr in dir(instance) if not callable(getattr(instance, attr)) and not attr.startswith("__")]
     #     return {key:getattr(instance,key) for key in keys}
 
+
+# In[ ]:
+
+
 CONFIG = config_midas()
 
 
@@ -127,10 +132,12 @@ def setup_file_logger(log_file):
     logger.addHandler(hdlr) 
     logger.setLevel(logging.INFO)
 
-def log(message):
+def myprint(message):
     new_m = "|{}| {}".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),message)
     print(new_m)
     logger.info(new_m)
+    
+setup_file_logger(config_midas.base_save_dir+"/auc_logloss.log")
 
 
 # ## Pre | TFRecord处理
@@ -182,15 +189,14 @@ def get_iterator(tfrecord_path,global_all_fields,global_multi_hot_fields,global_
 # In[ ]:
 
 
-setup_file_logger(config_midas.base_save_dir+"/auc_logloss.log")
 class DeepFM(object):
     def __init__(self,train_tfrecord_file,valid_tfrecord_file,
                  random_seed,base_save_dir,deepfm_param_dicts,data_param_dicts):
         # 普通参数
         self.random_seed = random_seed
         tagTime= time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime(time.time()))
-        self.model_save_dir = base_save_dir+"/dt={}/{}".format(tagTime,"model")
-        self.summary_save_dir = base_save_dir+"/dt={}/{}".format(tagTime,"summary")
+        self.model_save_dir = base_save_dir+"/model"
+        self.summary_save_dir = base_save_dir+"/summary"
         # TFRecord路径
         self.train_tfrecord_file = train_tfrecord_file
         self.valid_tfrecord_file = valid_tfrecord_file
@@ -378,8 +384,7 @@ class DeepFM(object):
                         shape=[-1, deep_input_size * embedding_size])  # None * (F*K)
                     y_deep_input = tf.concat([y_deep_input, feat_numeric_sp_dense],
                                              axis=1)
-                    # 据说去掉这里的dropout效果会好一些
-#                     y_deep_input = tf.nn.dropout(y_deep_input, dropout_keep_deep[0])
+                    y_deep_input = tf.nn.dropout(y_deep_input, dropout_keep_deep[0])
                 # layer0
                 with tf.name_scope("layer0"):
                     y_deep_layer_0 = tf.add(
@@ -397,10 +402,28 @@ class DeepFM(object):
                         y_deep_layer_1, inp_train_phase=train_phase, scope_bn="bn_1",inp_batch_norm_decay=batch_norm_decay)
                     y_deep_layer_1 = deep_layers_activation(y_deep_layer_1)
                     y_deep_layer_1 = tf.nn.dropout(y_deep_layer_1, dropout_keep_deep[2])
+                # layer2
+                with tf.name_scope("layer2"):
+                    y_deep_layer_2 = tf.add(
+                        tf.matmul(y_deep_layer_1, weights["layer_2"]),
+                        weights["bias_2"])
+                    y_deep_layer_2 = batch_norm_layer(
+                        y_deep_layer_2, inp_train_phase=train_phase, scope_bn="bn_2",inp_batch_norm_decay=batch_norm_decay)
+                    y_deep_layer_2 = deep_layers_activation(y_deep_layer_2)
+                    y_deep_layer_2 = tf.nn.dropout(y_deep_layer_2, dropout_keep_deep[3])
+                # layer3
+                with tf.name_scope("layer3"):
+                    y_deep_layer_3 = tf.add(
+                        tf.matmul(y_deep_layer_2, weights["layer_3"]),
+                        weights["bias_3"])
+                    y_deep_layer_3 = batch_norm_layer(
+                        y_deep_layer_3, inp_train_phase=train_phase, scope_bn="bn_3",inp_batch_norm_decay=batch_norm_decay)
+                    y_deep_layer_3 = deep_layers_activation(y_deep_layer_3)
+                    y_deep_layer_3 = tf.nn.dropout(y_deep_layer_3, dropout_keep_deep[4])
             # ---------- DeepFM ---------------
             with tf.name_scope("DeepFM"):
                 concat_input = tf.concat(
-                    [y_first_order, y_second_order, y_deep_layer_1], axis=1)
+                    [y_first_order, y_second_order, y_deep_layer_3], axis=1)
                 out = tf.add(
                     tf.matmul(concat_input, weights["concat_projection"]),
                     weights["concat_bias"])
@@ -567,6 +590,12 @@ class DeepFM(object):
                 tf.summary.scalar('structural_risk_L2',structural_risk)
                 loss_op = empirical_risk + structural_risk
 
+            # loss_op = tf.reduce_mean(tf.losses.log_loss(label_op, pred))
+            if self.l2_reg>0:
+                loss_op += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["concat_projection"])
+                for i in range(len(self.deep_layers)):
+                    loss_op += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["layer_%d"%i])
+
             # optimizer
             _optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.9, beta2=0.999,epsilon=1e-8)
             grad = _optimizer.compute_gradients(loss_op)
@@ -667,7 +696,6 @@ class DeepFM(object):
 # In[ ]:
 
 
-setup_file_logger(config_midas.base_save_dir+"/auc_logloss.log")
 class DeepFM(object):
     def __init__(self,train_tfrecord_file,valid_tfrecord_file,
                  random_seed,base_save_dir,deepfm_param_dicts,data_param_dicts):
@@ -1171,18 +1199,18 @@ process = DeepFM(CONFIG.train_tfrecord_file,CONFIG.valid_tfrecord_file,CONFIG.ra
 # In[ ]:
 
 
+process.fit()
+
+
+# In[ ]:
+
+
 weights=process.weights
 model_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
 model_config.gpu_options.allow_growth = True
 sess = tf.Session(graph=process.graph,config=model_config)
 sess.run(process.init_op)
 print(sess.run(weights["feature_embeddings"][0,:]))
-
-
-# In[ ]:
-
-
-process.fit()
 
 
 # ## Inference |
