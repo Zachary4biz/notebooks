@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[9]:
 
 
 import tensorflow as tf
@@ -27,12 +27,12 @@ os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
 # ## 参数类
 
-# In[2]:
+# In[10]:
 
 
 class config_midas(object):
     # input
-    _basePath = "/home/zhoutong/data/apus_ad/midas/tfrecord_2018-11-01_to_2018-11-23_and_2018-11-24_to_2018-11-30_filterRepeatView_intersectLR"
+    _basePath = "/home/zhoutong/data/apus_ad/midas/tfrecord_2018-11-01_to_2018-11-14_and_2018-11-15_to_2018-11-22_itr_filterRepeatView_intersectLR_fra0.1"
     train_tfrecord_file = _basePath+"/train.tfrecord.gz"
     valid_tfrecord_file = _basePath+"/valid.tfrecord.gz"
     info_file = _basePath+"/info.json"
@@ -68,14 +68,14 @@ class config_midas(object):
         "dropout_fm" : [1.0, 1.0],
         "dropout_deep" : [0.8, 0.9, 0.9, 0.9, 0.9],
         "feature_size": statisticInfo['feature_size']+1,
-        "batch_size":1024*3,
-        "embedding_size": 2,
-        "epoch":8,
+        "batch_size":1024*6,
+        "embedding_size": 8,
+        "epoch":25,
         "deep_layers_activation" : tf.nn.relu,
         "batch_norm_decay": 0.9,
         "deep_layers":[16,8],
-        "learning_rate": 0.001,
-        "l2_reg":0.001
+        "learning_rate": 0.01,
+        "l2_reg":0.0001
     }
 
     random_seed=2017
@@ -91,13 +91,13 @@ class config_midas(object):
     #     return {key:getattr(instance,key) for key in keys}
 
 
-# In[3]:
+# In[11]:
 
 
 CONFIG = config_midas()
 
 
-# In[4]:
+# In[12]:
 
 
 # 输出一下参数
@@ -118,7 +118,7 @@ if not os.path.exists(config_midas.base_save_dir):
 
 # ## log工具 同时输出到文件
 
-# In[5]:
+# In[13]:
 
 
 import logging
@@ -134,7 +134,6 @@ def setup_file_logger(log_file):
 
 def myprint(message):
     new_m = "|{}| {}".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),message)
-    print(new_m)
     logger.info(new_m)
     
 setup_file_logger(config_midas.base_save_dir+"/auc_logloss.log")
@@ -142,7 +141,7 @@ setup_file_logger(config_midas.base_save_dir+"/auc_logloss.log")
 
 # ## Pre | TFRecord处理
 
-# In[6]:
+# In[14]:
 
 
 # ******** TFRecord - Dataset 读取**********
@@ -186,7 +185,7 @@ def get_iterator(tfrecord_path,global_all_fields,global_multi_hot_fields,global_
 
 # ## Pre | DeepFM类
 
-# In[7]:
+# In[15]:
 
 
 class DeepFM(object):
@@ -521,6 +520,13 @@ class DeepFM(object):
                     variable_parameters *= dim.value
                 total_parameters += variable_parameters
             myprint("total_parameters cnt : %s" % total_parameters)
+            print("total_parameters cnt : %s" % total_parameters)
+            
+            for k,v in weights.items():
+                dim_list = [dim.value for dim in v.get_shape()]
+                reduce_prod_dim = reduce(lambda x, y: x*y, dim_list) if len(dim_list)>0 else 0
+                myprint(k+" size="+"*".join([str(i) for i in dim_list])+"=" + str(reduce_prod_dim))
+                print(k+" size="+"*".join([str(i) for i in dim_list])+"=" + str(reduce_prod_dim))
 
             inp_tfrecord_path = tf.placeholder(dtype=tf.string, name="tfrecord_path")
             inp_iterator = get_iterator(inp_tfrecord_path,self.global_all_fields,self.global_multi_hot_fields,self.global_numeric_fields,self.max_numeric,self.tmp_map_num_f,self.batch_size)
@@ -649,9 +655,10 @@ class DeepFM(object):
                         _,loss_,pred_,label_,merge_summary_ = run_result
                         self.writer.add_summary(merge_summary_,global_batch_cnt)
                         if batch_cnt % 100 == 0:
-                            auc = roc_auc_score(label_,pred_)
+                            pos_neg_ratio = int(np.sum(label_==0)/np.sum(label_==1)) if np.sum(label_==1) !=0 else "inf"
+                            auc = roc_auc_score(label_,pred_) if np.sum(label_==1) !=0 else 0
                             batch_time = time.time()-t0
-                            myprint("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d}] logloss:[{loss_:.5f}] auc:[{auc:.5f}] [{batch_time:.1f}s]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,loss_=loss_,auc=auc,batch_time=batch_time))
+                            myprint("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d}] logloss:[{loss_:.5f}] auc:[{auc:.5f}] pos_neg:[1:{pos_neg}] [{batch_time:.1f}s]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,loss_=loss_,auc=auc,pos_neg=pos_neg_ratio,batch_time=batch_time))
                             t0=time.time()
                         # 存在严重缺陷，这里如果用valid初始化后，从1001batch开始都会从valid里面拿数据了
             #             if batch_cnt % 1000 ==0:
@@ -665,6 +672,7 @@ class DeepFM(object):
                 sess.run(self.inp_iterator.initializer,valid_feed)
                 logloss,auc=self._evaluate(sess,valid_feed)
                 myprint("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d} valid] valid_logloss:[{logloss:.5f}] valid_auc:[{auc:.5f}]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,logloss=logloss,auc=auc))
+                print("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d} valid] valid_logloss:[{logloss:.5f}] valid_auc:[{auc:.5f}]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,logloss=logloss,auc=auc))
                 if global_auc<auc:
                     global_auc = auc
                     myprint("logloss:[{logloss:.5f}] auc:[{auc:.5f}] global_batch_cnt:[{global_batch_cnt:0>4d}] gonna save model ...".format(logloss=logloss,auc=auc,global_batch_cnt=global_batch_cnt))
@@ -1168,7 +1176,7 @@ class DeepFM(object):
 
 # ## Train |
 
-# In[8]:
+# In[16]:
 
 
 process = DeepFM(CONFIG.train_tfrecord_file,CONFIG.valid_tfrecord_file,CONFIG.random_seed,CONFIG.base_save_dir,CONFIG.deepfm_param_dicts,CONFIG.data_param_dicts)
