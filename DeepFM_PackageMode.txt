@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
 
 import tensorflow as tf
 import numpy as np
@@ -24,15 +19,9 @@ import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
 os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
-
-# ## 参数类
-
-# In[ ]:
-
-
 class config_midas(object):
     # input
-    _basePath = "/home/zhoutong/data/apus_ad/midas/tfrecord_2018-11-01_to_2018-11-23_and_2018-11-24_to_2018-11-30_itr_filterRepeatView_intersectLR_fra0.01"
+    _basePath = "/home/zhoutong/data/apus_ad/midas/tfrecord_2018-11-01_to_2018-11-14_and_2018-11-15_to_2018-11-22_itr_filterRepeatView_intersectLR_fra0.1"
     train_tfrecord_file = _basePath+"/train.tfrecord.gz"
     valid_tfrecord_file = _basePath+"/valid.tfrecord.gz"
     info_file = _basePath+"/info.json"
@@ -68,14 +57,14 @@ class config_midas(object):
         "dropout_fm" : [1.0, 1.0],
         "dropout_deep" : [0.8, 0.9, 0.9, 0.9, 0.9],
         "feature_size": statisticInfo['feature_size']+1,
-        "batch_size":1024*2,
-        "embedding_size": 8,
+        "batch_size":1024*6,
+        "embedding_size": 20,
         "epoch":15,
         "deep_layers_activation" : tf.nn.relu,
         "batch_norm_decay": 0.9,
         "deep_layers":[16,8],
         "learning_rate": 0.01,
-        "l2_reg":0.001
+        "l2_reg":0.1
     }
 
     random_seed=2017
@@ -91,39 +80,22 @@ class config_midas(object):
     #     return {key:getattr(instance,key) for key in keys}
 
 
-# In[ ]:
-
-
 CONFIG = config_midas()
-
-
-# In[ ]:
-
 
 # 输出一下参数
 import json
 with open(config_midas.info_file,"r+") as f:
     info = f.read()
     result = json.loads(info)
-
-approxmateBatch = (result['statistic']['train_pos']+result['statistic']['train_neg'])/config_midas.deepfm_param_dicts['batch_size']
-if approxmateBatch <1000: print("\n    ********NOTIFICATION: batch 少于1000 ******** \n")
-print("预计batch总数:",approxmateBatch)
-print("模型相关信息保存路径: ",config_midas.base_save_dir)
 for key,value in result.items():
     print(key,"--")
     for key_,value_ in value.items():
         print("    ",key_,"=",value_)
-
+print("预计batch总数:",(result['statistic']['train_pos']+result['statistic']['train_neg'])/config_midas.deepfm_param_dicts['batch_size'])
+print("模型相关信息保存路径: ",config_midas.base_save_dir)
 if not os.path.exists(config_midas.base_save_dir):
     os.mkdir(config_midas.base_save_dir)
     print("模型路径不存在，已创建新文件夹")
-
-
-# ## log工具 同时输出到文件
-
-# In[ ]:
-
 
 import logging
 import time
@@ -141,12 +113,6 @@ def myprint(message):
     logger.info(new_m)
     
 setup_file_logger(config_midas.base_save_dir+"/auc_logloss.log")
-
-
-# ## Pre | TFRecord处理
-
-# In[ ]:
-
 
 # ******** TFRecord - Dataset 读取**********
 def get_iterator(tfrecord_path,global_all_fields,global_multi_hot_fields,global_numeric_fields,max_numeric,tmp_map_num_f,batch_size):
@@ -185,12 +151,6 @@ def get_iterator(tfrecord_path,global_all_fields,global_multi_hot_fields,global_
                    .batch(batch_size,drop_remainder=True))
         iterator = dataset.make_initializable_iterator()
     return iterator
-
-
-# ## Pre | DeepFM类
-
-# In[ ]:
-
 
 class DeepFM(object):
     def __init__(self,train_tfrecord_file,valid_tfrecord_file,
@@ -387,7 +347,7 @@ class DeepFM(object):
                         shape=[-1, deep_input_size * embedding_size])  # None * (F*K)
                     y_deep_input = tf.concat([y_deep_input, feat_numeric_sp_dense],
                                              axis=1)
-#                     y_deep_input = tf.nn.dropout(y_deep_input, dropout_keep_deep[0])
+                    y_deep_input = tf.nn.dropout(y_deep_input, dropout_keep_deep[0])
                 # layer0
                 with tf.name_scope("layer0"):
                     y_deep_layer_0 = tf.add(
@@ -681,9 +641,6 @@ class DeepFM(object):
                     global_auc = auc
                     myprint("logloss:[{logloss:.5f}] auc:[{auc:.5f}] global_batch_cnt:[{global_batch_cnt:0>4d}] gonna save model ...".format(logloss=logloss,auc=auc,global_batch_cnt=global_batch_cnt))
                     self._simple_save(sess,self.model_save_dir,self.inputs_dict,self.outputs_dict,global_batch_cnt,auc)
-
-
-# In[ ]:
 
 
 class DeepFM(object):
@@ -1177,23 +1134,10 @@ class DeepFM(object):
                     log("logloss:[{logloss:.5f}] auc:[{auc:.5f}] global_batch_cnt:[{global_batch_cnt:0>4d}] gonna save model ...".format(logloss=logloss,auc=auc,global_batch_cnt=global_batch_cnt))
                     self._simple_save(sess,self.model_save_dir,self.inputs_dict,self.outputs_dict,global_batch_cnt,auc)
 
-
-# ## Train |
-
-# In[ ]:
-
-
 process = DeepFM(CONFIG.train_tfrecord_file,CONFIG.valid_tfrecord_file,CONFIG.random_seed,CONFIG.base_save_dir,CONFIG.deepfm_param_dicts,CONFIG.data_param_dicts)
 
 
-# In[ ]:
-
-
 process.fit()
-
-
-# In[ ]:
-
 
 weights=process.weights
 model_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
@@ -1201,12 +1145,6 @@ model_config.gpu_options.allow_growth = True
 sess = tf.Session(graph=process.graph,config=model_config)
 sess.run(process.init_op)
 print(sess.run(weights["feature_embeddings"][0,:]))
-
-
-# ## Inference |
-
-# In[ ]:
-
 
 # ******** 从磁盘解析TFRecord数据进行预测 **********
 class Inference(object):
@@ -1275,12 +1213,6 @@ class Inference(object):
                     break
             return label_queue,pred_queue
 
-
-# ## Inference | 读取TFRecord用的Config文件
-
-# In[ ]:
-
-
 # ******* Inference读取TFRecord使用的config文件,包含基础的描述信息 ********
 class load_config(object):
     basePath = "/home/zhoutong/data/starksdk/tfrecord_2018-09-21_to_2018-10-04_and_2018-10-05_to_2018-10-11"
@@ -1309,19 +1241,9 @@ valid_iterator = get_iterator(load_config.valid_tfrecord_file,
                               load_config.tmp_map_num_f,
                               load_config.batch_size)
 
-
-# In[ ]:
-
-
 model_p = "/home/zhoutong/starksdk_model/model_2018-10-31-20-10-32"+"/model.ckpt-1254"
 inferer = Inference(model_p,model_type="ckpt",out_tensor_name="output/pred:0",inp_tensor_prefix="input")
 label,pred = inferer.infer_tfrecord_iterator(valid_iterator)
-
-
-# ## ONNX | 模型转成ONNX
-
-# In[ ]:
-
 
 # ********* 模型(ckpt)转成 onnx *******
 model_p = "/Users/zac/model_2018-11-01-12-13-25"+"/model.ckpt-1124"
@@ -1339,11 +1261,6 @@ def transform2onnx(model_path_inp, onnx_path_inp):
         model_proto = onnx_graph.make_model("test", [ph.name for ph in to_feed_ph], ["output/pred:0"])
         with open(onnx_path_inp, "wb+") as f:
             f.write(model_proto.SerializeToString())
-
-
-# ## Debug
-
-# In[ ]:
 
 
 class DeepFM(object):
@@ -1853,10 +1770,6 @@ class DeepFM(object):
                     myprint("logloss:[{logloss:.5f}] auc:[{auc:.5f}] global_batch_cnt:[{global_batch_cnt:0>4d}] gonna save model ...".format(logloss=logloss,auc=auc,global_batch_cnt=global_batch_cnt))
                     self._simple_save(sess,self.model_save_dir,self.inputs_dict,self.outputs_dict,global_batch_cnt,auc)
 
-
-# In[ ]:
-
-
 CONFIG = config_midas()
 process = DeepFM(CONFIG.train_tfrecord_file,CONFIG.valid_tfrecord_file,CONFIG.random_seed,CONFIG.base_save_dir,CONFIG.deepfm_param_dicts,CONFIG.data_param_dicts)
 self = process
@@ -1869,15 +1782,7 @@ sess.run(self.init_op)
 sess.run(self.inp_iterator.initializer,train_feed)
 train_feed.update(sess.run(self.ori_feed_dict))
 
-
-# In[ ]:
-
-
 inp_dict = self.placeholder_dict
-
-
-# In[ ]:
-
 
 def __add_idx_to_tensor(inp_tensor):
             idx = tf.range(tf.shape(inp_tensor)[0])
@@ -1893,10 +1798,6 @@ for field in self.global_numeric_fields:
 idx_dense = __add_idx_to_tensor(tf.transpose(tf.stack(idx_to_stack)))
 value_dense = tf.reshape(tf.transpose(tf.stack(value_to_stack)),[-1])
 
-
-# In[ ]:
-
-
 # train_feed[self.placeholder_dict['stat_ad_creative_id_s__cvr_3d']]
 # sess.run(self.ori_feed_dict[self.placeholder_dict['stat_ad_creative_id_s__cvr_3d']])
 # sess.run(self.inp_next_dict['stat_ad_creative_id_s__cvr_3d'])
@@ -1907,23 +1808,10 @@ for k,v in self.ori_feed_dict.items():
     k,v
 
 
-# In[ ]:
-
-
-
 a=sess.run([self.feat_numeric_sp,self.feat_category_sp],train_feed)
 a[0]
 a[1]
 
-
-# In[ ]:
-
-
 (1,2,3,"34",[23,2],None)
-
-
-# In[ ]:
-
-
 
 
