@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[ ]:
 
 
 import tensorflow as tf
@@ -309,8 +309,8 @@ class DeepFM(object):
                 z = tf.cond(inp_train_phase, lambda: bn_train, lambda: bn_inference)
                 return z
 
-            dropout_keep_fm = self.dropout_fm
-            dropout_keep_deep = self.dropout_deep
+            dropout_keep_fm = self.dropout_fm if train_phase else [1.0]*len(self.dropout_fm)
+            dropout_keep_deep = self.dropout_deep if train_phase else [1.0]*len(self.dropout_deep)
             numeric_feature_size = self.numeric_field_size
             onehot_field_size = self.one_hot_field_size
             multi_hot_field_size = self.multi_hot_field_size
