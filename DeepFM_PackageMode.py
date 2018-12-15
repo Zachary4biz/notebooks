@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[17]:
 
 
 import tensorflow as tf
@@ -27,7 +27,7 @@ os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
 # ## 参数类
 
-# In[ ]:
+# In[18]:
 
 
 class config_midas(object):
@@ -91,13 +91,13 @@ class config_midas(object):
     #     return {key:getattr(instance,key) for key in keys}
 
 
-# In[ ]:
+# In[19]:
 
 
 CONFIG = config_midas()
 
 
-# In[ ]:
+# In[20]:
 
 
 # 输出一下参数
@@ -122,7 +122,7 @@ if not os.path.exists(config_midas.base_save_dir):
 
 # ## log工具 同时输出到文件
 
-# In[ ]:
+# In[21]:
 
 
 import logging
@@ -145,7 +145,7 @@ setup_file_logger(config_midas.base_save_dir+"/auc_logloss.log")
 
 # ## Pre | TFRecord处理
 
-# In[ ]:
+# In[22]:
 
 
 # ******** TFRecord - Dataset 读取**********
@@ -189,7 +189,7 @@ def get_iterator(tfrecord_path,global_all_fields,global_multi_hot_fields,global_
 
 # ## Pre | DeepFM类
 
-# In[ ]:
+# In[23]:
 
 
 class DeepFM(object):
@@ -309,8 +309,8 @@ class DeepFM(object):
                 z = tf.cond(inp_train_phase, lambda: bn_train, lambda: bn_inference)
                 return z
 
-            dropout_keep_fm = self.dropout_fm if train_phase else [1.0]*len(self.dropout_fm)
-            dropout_keep_deep = self.dropout_deep if train_phase else [1.0]*len(self.dropout_deep)
+            dropout_keep_fm = tf.cond(train_phase, lambda: self.dropout_fm, lambda: [1.0]*len(self.dropout_fm))
+            dropout_keep_deep = tf.cond(train_phase, lambda: self.dropout_deep, lambda: [1.0]*len(self.dropout_deep))
             numeric_feature_size = self.numeric_field_size
             onehot_field_size = self.one_hot_field_size
             multi_hot_field_size = self.multi_hot_field_size
@@ -1180,7 +1180,7 @@ class DeepFM(object):
 
 # ## Train |
 
-# In[ ]:
+# In[24]:
 
 
 process = DeepFM(CONFIG.train_tfrecord_file,CONFIG.valid_tfrecord_file,CONFIG.random_seed,CONFIG.base_save_dir,CONFIG.deepfm_param_dicts,CONFIG.data_param_dicts)
