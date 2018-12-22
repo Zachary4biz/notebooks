@@ -1,12 +1,20 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[78]:
+# In[10]:
 
 
 from IPython.core.interactiveshell import InteractiveShell
 InteractiveShell.ast_node_interactivity = "all"
 get_ipython().run_line_magic('matplotlib', 'inline')
+
+
+# In[2]:
+
+
+import pandas as pd
+import math
+import matplotlib.pyplot as plt
 
 
 # ## wikipedia API | 获取category下的page
@@ -30,7 +38,7 @@ def print_categorymembers(categorymembers, level=0, max_level=2):
 
 # ## wikipedia API | 获取Pageview
 
-# In[95]:
+# In[ ]:
 
 
 import pageviewapi as pv
@@ -62,7 +70,7 @@ int(pv.period.avg_last("en.wikipedia",target,last=30))
 # pageviewapi.legacy_pagecounts('fr.wikipedia', '2010010100', '2011010100', granularity='monthly')
 
 
-# In[83]:
+# In[ ]:
 
 
 import itertools
@@ -110,7 +118,7 @@ with open("/home/zhoutong/indiaDict_title_withPV","w+") as f:
 
 # ## 脚本用
 
-# In[38]:
+# In[ ]:
 
 
 #####################
@@ -170,7 +178,7 @@ with open(save_path,"w+") as f:
 
 
 
-# In[91]:
+# In[ ]:
 
 
 from urllib.parse import unquote
@@ -180,7 +188,7 @@ with open("/home/zhoutong/indiaDicts_withPV/indiaDictWith_Title_PV.txt", "w+") a
         f_toSave.writelines([unquote(i) for i in f.readlines()])
 
 
-# In[89]:
+# In[ ]:
 
 
 "\u0394"
@@ -188,7 +196,7 @@ with open("/home/zhoutong/indiaDicts_withPV/indiaDictWith_Title_PV.txt", "w+") a
 
 # ## 可视化
 
-# In[79]:
+# In[1]:
 
 
 import pandas as pd
@@ -199,7 +207,7 @@ df = pd.read_csv("/home/zhoutong/data.csv",header=None,names=["textLength","pv7"
 df.head(3)
 
 
-# In[92]:
+# In[3]:
 
 
 # 0.999 百分位 和 0.001 百分位
@@ -209,7 +217,7 @@ df.describe()
 df.quantile(0.01)
 
 
-# In[167]:
+# In[4]:
 
 
 # 统计 textLength
@@ -222,39 +230,39 @@ def sta(inp,left_cut=-float('inf'),right_cut=float('inf'),top_cut=float("inf"),s
     if(show>0): print("*** head(show)\n",df_toUse.groupby(inp).size().reset_index(name="count").head(show))
 
 
-# In[168]:
+# In[11]:
 
 
 sta("textLength")
 sta("textLength",right_cut=100*1000)
 
 
-# In[169]:
+# In[6]:
 
 
 sta("pv7")
 sta("pv7",top_cut=3,show=10)
 
 
-# In[77]:
+# In[ ]:
 
 
 sta("pv30")
 
 
-# In[130]:
+# In[ ]:
 
 
 sta("pv365")
 
 
-# In[134]:
+# In[ ]:
 
 
 int('inf')
 
 
-# In[76]:
+# In[ ]:
 
 
 tmp = df['pv7'].sort_values().reset_index(drop=True)
@@ -265,7 +273,7 @@ a.plot(kind='hist')
 
 
 
-# In[120]:
+# In[ ]:
 
 
 df1=pd.read_csv("/home/zhoutong/data.csv",header=None,names=["hit_wordCnt"])
@@ -278,12 +286,54 @@ df1.quantile(0.28)
 df1.size
 
 
-# In[1]:
+# ## 统一分析DeepFM的log日志
+
+# In[7]:
 
 
-import requests
-url = "https://36kr.com/newsflashes"
-requests.get(url)
+file_dir = ["auc_872_params1","auc_8799","dt=2018-12-14-09-40-48",
+            "dt=2018-12-17-09-46-11","dt=2018-12-17-12-18-29",
+            "dt=2018-12-17-13-26-45","dt=2018-12-17-15-22-38",
+            "dt=2018-12-18-10-20-48","dt=2018-12-18-12-50-44",
+            "dt=2018-12-18-14-16-55","dt=2018-12-18-16-44-06",
+            "dt=2018-12-18-18-31-56","dt=2018-12-18-20-58-05",
+            "dt=2018-12-19-17-28-02","dt=2018-12-19-21-43-13",
+            "dt=2018-12-20-17-50-19"]
+base_path = "/home/zhoutong/tf_modelInfo/type=midas/{dir}/auc_logloss.log"
+
+
+# In[22]:
+
+
+def generate():
+    with open(base_path.format(dir=file_dir[0]),'r') as f:
+        for line in f:
+            yield line
+generator = generate()
+
+
+# In[ ]:
+
+
+total_parameters cnt : 1917031
+feature_embeddings size=173873*10=1738730
+feature_bias size=173873*1=173873
+layer_0 size=266*16=4256
+bias_0 size=1*16=16
+layer_1 size=16*8=128
+bias_1 size=1*8=8
+concat_projection size=19*1=19
+concat_bias size==0
+
+
+# In[24]:
+
+
+for i in generator:
+    if "/home/zhoutong/data/apus_ad/" in i:
+        i.split(" ")[-1]
+    elif :
+        
 
 
 # In[ ]:
