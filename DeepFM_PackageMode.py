@@ -27,12 +27,12 @@ os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
 # ## 参数类
 
-# In[18]:
+# In[2]:
 
 
 class config_midas(object):
     # input
-    _basePath = "/home/zhoutong/data/apus_ad/midas/tfrecord_2018-11-01_to_2018-11-23_and_2018-11-24_to_2018-11-30_itr_filterRepeatView_intersectLR_fra0.01"
+    _basePath = "/home/zhoutong/data/apus_ad/midas/tfrecord_2018-11-01_to_2018-11-23_and_2018-11-24_to_2018-11-30_itr_filterRepeatView_intersectLR_addBucket_fra0.01"
     train_tfrecord_file = _basePath+"/train.tfrecord.gz"
     valid_tfrecord_file = _basePath+"/valid.tfrecord.gz"
     info_file = _basePath+"/info.json"
@@ -66,15 +66,15 @@ class config_midas(object):
     # 调参修正如下参数
     deepfm_param_dicts = {
         "dropout_fm" : [1.0, 1.0],
-        "dropout_deep" : [0.8, 0.9, 0.9, 0.9, 0.9],
+        "dropout_deep" : [1.0, 0.9, 0.9, 0.9, 0.9],
         "feature_size": statisticInfo['feature_size']+1,
-        "batch_size":1024*2,
-        "embedding_size": 8,
-        "epoch":15,
+        "batch_size":int(1024*0.125),
+        "embedding_size": 13,
+        "epoch":30,
         "deep_layers_activation" : tf.nn.relu,
         "batch_norm_decay": 0.9,
-        "deep_layers":[16,8],
-        "learning_rate": 0.01,
+        "deep_layers":[16,16],
+        "learning_rate": 0.0001,
         "l2_reg":0.001
     }
 
@@ -91,13 +91,14 @@ class config_midas(object):
     #     return {key:getattr(instance,key) for key in keys}
 
 
-# In[19]:
+# In[3]:
 
 
 CONFIG = config_midas()
 
 
-# In[20]:
+# In[4]:
+
 
 
 # 输出一下参数
@@ -122,7 +123,7 @@ if not os.path.exists(config_midas.base_save_dir):
 
 # ## log工具 同时输出到文件
 
-# In[21]:
+# In[5]:
 
 
 import logging
@@ -136,16 +137,23 @@ def setup_file_logger(log_file):
     logger.addHandler(hdlr) 
     logger.setLevel(logging.INFO)
 
-def myprint(message):
+def myprint(message,verbose=False):
     new_m = "|{}| {}".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),message)
     logger.info(new_m)
+    if verbose: print(new_m)
     
 setup_file_logger(config_midas.base_save_dir+"/auc_logloss.log")
+myprint("使用的数据:",True)
+myprint("  "+config_midas._basePath,True)
+myprint("deepfm参数:",True)
+for key,value in config_midas.deepfm_param_dicts.items():
+    toLog = "  "+str(key)+" = "+str(value)
+    myprint(toLog,True)
 
 
 # ## Pre | TFRecord处理
 
-# In[22]:
+# In[6]:
 
 
 # ******** TFRecord - Dataset 读取**********
@@ -164,7 +172,7 @@ def get_iterator(tfrecord_path,global_all_fields,global_multi_hot_fields,global_
                 feature_structure[field]=tf.FixedLenFeature([], dtype=tf.int64)
         parsed_features = tf.parse_single_example(serialized_example, feature_structure)
         return parsed_features
-    # 连续特征归一化 | 考虑特征不会出现负数，如果最大值就是0那么这个特征全为0，归一化就直接取0
+    # 连续特征归一化 | 考虑特征不会出现负数，如果最大值就是0那么这个特征全为0，归一化就直接取0，避免除0错误
     def _normalize(parsed_features):
         for num_f in global_numeric_fields:
             max_v = max_numeric[num_f]
@@ -189,7 +197,9 @@ def get_iterator(tfrecord_path,global_all_fields,global_multi_hot_fields,global_
 
 # ## Pre | DeepFM类
 
-# In[23]:
+# - **测试集还是有dropout**
+
+# In[ ]:
 
 
 class DeepFM(object):
@@ -233,7 +243,7 @@ class DeepFM(object):
         self.global_dense_shape = [self.batch_size,self.feature_size]
         tf.set_random_seed(self.random_seed)
         self.graph = tf.Graph()
-
+        self.tfPrints = []
         # graph returned
         self.inp_tfrecord_path,self.inp_iterator,self.optimize_op,self.inputs_dict,self.outputs_dict,self.weights,self.ori_feed_dict,self.loss_op = self._init_graph()
 
@@ -309,8 +319,13 @@ class DeepFM(object):
                 z = tf.cond(inp_train_phase, lambda: bn_train, lambda: bn_inference)
                 return z
 
-            dropout_keep_fm = tf.cond(train_phase, lambda: self.dropout_fm, lambda: [1.0]*len(self.dropout_fm))
-            dropout_keep_deep = tf.cond(train_phase, lambda: self.dropout_deep, lambda: [1.0]*len(self.dropout_deep))
+            dropout_keep_fm = self.dropout_fm
+            dropout_keep_deep = self.dropout_deep
+#             dropout_keep_fm = tf.cond(train_phase, lambda:self.dropout_fm, lambda:[1.0]*len(self.dropout_fm))
+#             dropout_keep_deep = tf.cond(train_phase, lambda:self.dropout_deep, lambda:[1.0]*len(self.dropout_deep))
+            self.tfPrints.append(tf.Print(dropout_keep_fm,[dropout_keep_fm],message="Debug message of dropout_keep_fm:",summarize=10))
+            self.tfPrints.append(tf.Print(dropout_keep_deep,[dropout_keep_deep],message="Debug message of dropout_keep_deep:",summarize=10))
+            
             numeric_feature_size = self.numeric_field_size
             onehot_field_size = self.one_hot_field_size
             multi_hot_field_size = self.multi_hot_field_size
@@ -654,9 +669,9 @@ class DeepFM(object):
                         batch_cnt += 1
                         global_batch_cnt += 1
                         train_feed.update(sess.run(self.ori_feed_dict))
-                        run_ops=[self.optimize_op,self.loss_op,self.pred,self.label_op,self.merge_summary]
+                        run_ops=[self.optimize_op,self.loss_op,self.pred,self.label_op,self.merge_summary] + self.tfPrints
                         run_result = sess.run(run_ops,train_feed)
-                        _,loss_,pred_,label_,merge_summary_ = run_result
+                        _,loss_,pred_,label_,merge_summary_,_,_ = run_result
                         self.writer.add_summary(merge_summary_,global_batch_cnt)
                         if batch_cnt % 100 == 0:
                             pos_neg_ratio = int(np.sum(label_==0)/np.sum(label_==1)) if np.sum(label_==1) !=0 else "inf"
@@ -683,7 +698,9 @@ class DeepFM(object):
                     self._simple_save(sess,self.model_save_dir,self.inputs_dict,self.outputs_dict,global_batch_cnt,auc)
 
 
-# In[ ]:
+# - **对测试集取消dropout，使用placeholder传进去**
+
+# In[7]:
 
 
 class DeepFM(object):
@@ -691,8 +708,9 @@ class DeepFM(object):
                  random_seed,base_save_dir,deepfm_param_dicts,data_param_dicts):
         # 普通参数
         self.random_seed = random_seed
-        self.model_save_dir = base_save_dir+"/{}".format("model")
-        self.summary_save_dir = base_save_dir+"/{}".format("summary")
+        tagTime= time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime(time.time()))
+        self.model_save_dir = base_save_dir+"/model"
+        self.summary_save_dir = base_save_dir+"/summary"
         # TFRecord路径
         self.train_tfrecord_file = train_tfrecord_file
         self.valid_tfrecord_file = valid_tfrecord_file
@@ -726,22 +744,24 @@ class DeepFM(object):
         self.global_dense_shape = [self.batch_size,self.feature_size]
         tf.set_random_seed(self.random_seed)
         self.graph = tf.Graph()
-
+        self.tfPrints = []
         # graph returned
         self.inp_tfrecord_path,self.inp_iterator,self.optimize_op,self.inputs_dict,self.outputs_dict,self.weights,self.ori_feed_dict,self.loss_op = self._init_graph()
-        
+
         with self.graph.as_default():
             self.train_phase = self.inputs_dict["train_phase"]
+            self.dropout_keep_fm = self.inputs_dict["dropout_keep_fm"]
+            self.dropout_keep_deep = self.inputs_dict["dropout_keep_deep"]
+            
             self.label_op = self.inputs_dict['label']
             self.pred = self.outputs_dict['pred']
-            
+
             self.merge_summary = tf.summary.merge_all()#调用sess.run运行图，生成一步的训练过程数据, 是一个option
             self.writer = tf.summary.FileWriter(self.summary_save_dir, self.graph)
-        
-            self.init_op = tf.global_variables_initializer()
-            # 注意如果不指定graph会使用默认graph，就获取不到在自定义的graph上的变量，报错 no variable to save 
-            self.mySaver = tf.train.Saver(max_to_keep=2)
 
+            self.init_op = tf.global_variables_initializer()
+            # 注意如果不指定graph会使用默认graph，就获取不到在自定义的graph上的变量，报错 no variable to save
+            self.mySaver = tf.train.Saver(max_to_keep=2)
     # ******** 初始化权重 ***********
     def _initialize_weights(self):
             multi_hot_field_size = self.multi_hot_field_size
@@ -792,9 +812,9 @@ class DeepFM(object):
 
 
     # ******** deepfm ***********
-    def _deep_fm_graph(self,weights, feat_total_idx_sp, feat_total_value_sp,
+    def _deep_fm_graph(self, weights, feat_total_idx_sp, feat_total_value_sp,
                           feat_multi_hot_idx_sp_list, feat_multi_hot_value_sp_list,
-                          feat_numeric_sp, feat_category_sp, train_phase):
+                          feat_numeric_sp, feat_category_sp, train_phase,dropout_keep_fm,dropout_keep_deep):
             def batch_norm_layer(x, inp_train_phase, scope_bn,inp_batch_norm_decay):
                 bn_train = batch_norm(x, decay=inp_batch_norm_decay, center=True, scale=True, updates_collections=None,
                                       is_training=True, reuse=None, trainable=True, scope=scope_bn)
@@ -803,8 +823,11 @@ class DeepFM(object):
                 z = tf.cond(inp_train_phase, lambda: bn_train, lambda: bn_inference)
                 return z
 
-            dropout_keep_fm = self.dropout_fm
-            dropout_keep_deep = self.dropout_deep
+#             dropout_keep_fm = tf.cond(train_phase, lambda:self.dropout_fm, lambda:[1.0]*len(self.dropout_fm))
+#             dropout_keep_deep = tf.cond(train_phase, lambda:self.dropout_deep, lambda:[1.0]*len(self.dropout_deep))
+            self.tfPrints.append(tf.Print(dropout_keep_fm,[dropout_keep_fm],message="Debug message of dropout_keep_fm:",summarize=10))
+            self.tfPrints.append(tf.Print(dropout_keep_deep,[dropout_keep_deep],message="Debug message of dropout_keep_deep:",summarize=10))
+            
             numeric_feature_size = self.numeric_field_size
             onehot_field_size = self.one_hot_field_size
             multi_hot_field_size = self.multi_hot_field_size
@@ -881,7 +904,7 @@ class DeepFM(object):
                         shape=[-1, deep_input_size * embedding_size])  # None * (F*K)
                     y_deep_input = tf.concat([y_deep_input, feat_numeric_sp_dense],
                                              axis=1)
-                    y_deep_input = tf.nn.dropout(y_deep_input, dropout_keep_deep[0])
+#                     y_deep_input = tf.nn.dropout(y_deep_input, dropout_keep_deep[0])
                 # layer0
                 with tf.name_scope("layer0"):
                     y_deep_layer_0 = tf.add(
@@ -906,13 +929,12 @@ class DeepFM(object):
                 out = tf.add(
                     tf.matmul(concat_input, weights["concat_projection"]),
                     weights["concat_bias"])
-            concat_ = tf.concat([y_first_order,y_second_order],axis=1)
-            out_ = tf.reduce_sum(concat_,axis=1)
-            return tf.nn.sigmoid(out_)
+
+            return tf.nn.sigmoid(out)
 
 
     # ******** 构造input并触发deepfm计算 ***********
-    def run_deepfm(self,weights,inp_list,train_phase):
+    def run_deepfm(self,weights,inp_list,train_phase,dropout_keep_fm,dropout_keep_deep):
         def __add_idx_to_tensor(inp_tensor):
             idx = tf.range(tf.shape(inp_tensor)[0])
             idx_2d = tf.reshape(idx,[-1,1])
@@ -1005,7 +1027,7 @@ class DeepFM(object):
 
         return self._deep_fm_graph(weights,feat_total_idx_sp, feat_total_value_sp,
                           feat_multi_hot_idx_sp_list, feat_multi_hot_value_sp_list,
-                          feat_numeric_sp, feat_category_sp, train_phase)
+                          feat_numeric_sp, feat_category_sp, train_phase,dropout_keep_fm,dropout_keep_deep)
 
     # ******** 初始化计算图 ***********
     def _init_graph(self):
@@ -1018,29 +1040,42 @@ class DeepFM(object):
                 for dim in shape:
                     variable_parameters *= dim.value
                 total_parameters += variable_parameters
-            log("total_parameters cnt : %s" % total_parameters)
-#             for k,v in weights.items():
-#                 dim_list = [dim.value for dim in v.get_shape()]
-#                 reduce_prod_dim = reduce(lambda x, y: x*y, dim_list) if len(dim_list)>0 else 0
-#                 log(k+" size="+"*".join([str(i) for i in dim_list])+"=" + str(reduce_prod_dim))
+            myprint("total_parameters cnt : %s" % total_parameters)
+            print("total_parameters cnt : %s" % total_parameters)
+            
+            for k,v in weights.items():
+                dim_list = [dim.value for dim in v.get_shape()]
+                reduce_prod_dim = reduce(lambda x, y: x*y, dim_list) if len(dim_list)>0 else 0
+                myprint(k+" size="+"*".join([str(i) for i in dim_list])+"=" + str(reduce_prod_dim))
+                print(k+" size="+"*".join([str(i) for i in dim_list])+"=" + str(reduce_prod_dim))
 
             inp_tfrecord_path = tf.placeholder(dtype=tf.string, name="tfrecord_path")
             inp_iterator = get_iterator(inp_tfrecord_path,self.global_all_fields,self.global_multi_hot_fields,self.global_numeric_fields,self.max_numeric,self.tmp_map_num_f,self.batch_size)
             inp_next_dict = inp_iterator.get_next()
             # prepare
             # inp_next_dict     key: decode时使用的字符串，value: tensor
+            #                   目的: 这个是iterator的next(get_next)结果
+            #                   示例: key: 'stat_ad_creative_id_s__cvr_3d'
+            #                        value: <tf.Tensor 'IteratorGetNext:57' shape=(3072,) dtype=int32>
             # placeholder_dict  key: decode时使用的字符串，value: placeholder
             #                   目的：为了让后面的流程都使用placeholder进行,这样存储模型可以以这些placeholder为输入口
-            #                   示例: 'ad_info__ad_creative_id_s':<tf.Tensor 'input/ad_info__ad_creative_id_s:0' shape=<unknown> dtype=int64>,
+            #                   示例: key: 'ad_info__ad_creative_id_s'
+            #                        value: <tf.Tensor 'input/ad_info__ad_creative_id_s:0' shape=<unknown> dtype=int64>,
             # ori_feed_dict     key: placeholder        value: tensor
             #                   目的：直接sess.run(ori_feed_dict)就可以得到后续流程需要的placeholder的feed_dict;
+            #                   示例: key: <tf.Tensor 'input/ad_info__ad_creative_id_s:0' shape=<unknown> dtype=int64>
+            #                        value: <tf.Tensor 'IteratorGetNext:1' shape=(3072,) dtype=int64>
             # 构造placeholder输入，方便模型文件restore后的使用
             # 这里实际上只是把 inp_next 这个“源字典”的 value 都用placeholder替换了，key未变
             placeholder_dict = {}
             with tf.name_scope("input"):
                 # train_phase放到这里只是为了共享同一个name_scope
                 train_phase = tf.placeholder(dtype=tf.bool,name="train_phase")
-                placeholder_dict["train_phase"]=train_phase
+                dropout_keep_fm = tf.placeholder(dtype=tf.float32,name="dropout_keep_fm")
+                dropout_keep_deep = tf.placeholder(dtype=tf.float32,name="dropout_keep_deep")
+                placeholder_dict["train_phase"]= train_phase
+                placeholder_dict["dropout_keep_fm"]= dropout_keep_fm
+                placeholder_dict["dropout_keep_deep"]= dropout_keep_deep
                 for k,v in inp_next_dict.items():
                     if k in self.global_multi_hot_fields:
                         placeholder_dict[k]=tf.sparse_placeholder(dtype=tf.int64,name=k)
@@ -1052,7 +1087,7 @@ class DeepFM(object):
                 ori_feed_dict = {placeholder_dict[k] : inp_next_dict[k] for k,v in inp_next_dict.items()}
 
             # deepfm
-            deepfm_output = self.run_deepfm(weights,placeholder_dict,train_phase)
+            deepfm_output = self.run_deepfm(weights,placeholder_dict,train_phase,dropout_keep_fm,dropout_keep_deep)
             with tf.name_scope("output"):
                 pred = tf.reshape(deepfm_output,[-1],name="pred")
             # label
@@ -1062,19 +1097,13 @@ class DeepFM(object):
             empirical_risk = tf.reduce_mean(tf.losses.log_loss(label_op, pred))
             loss_op = empirical_risk
             if self.l2_reg>0:
-#                 structural_risk = tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["concat_projection"])
-                structural_risk = tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["feature_embeddings"])
+                structural_risk = tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["concat_projection"])
+                structural_risk += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["feature_embeddings"])
                 structural_risk += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["feature_bias"])
-#                 for i in range(len(self.deep_layers)):
-#                     structural_risk += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["layer_%d"%i])
+                for i in range(len(self.deep_layers)):
+                    structural_risk += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["layer_%d"%i])
                 tf.summary.scalar('structural_risk_L2',structural_risk)
                 loss_op = empirical_risk + structural_risk
-
-            # loss_op = tf.reduce_mean(tf.losses.log_loss(label_op, pred))
-#             if self.l2_reg>0:
-#                 loss_op += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["concat_projection"])
-#                 for i in range(len(self.deep_layers)):
-#                     loss_op += tf.contrib.layers.l2_regularizer(self.l2_reg)(weights["layer_%d"%i])
 
             # optimizer
             _optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.9, beta2=0.999,epsilon=1e-8)
@@ -1089,7 +1118,7 @@ class DeepFM(object):
                     _=tf.summary.histogram(v.op.name+"/gradients",g)
             for v in tf.trainable_variables():
                 _=tf.summary.histogram(v.name.replace(":0","/value"),v)
-            
+
             inputs_dict = placeholder_dict
             outputs_dict = {"pred":pred}
         return inp_tfrecord_path,inp_iterator,optimize_op,inputs_dict,outputs_dict,weights,ori_feed_dict,loss_op
@@ -1101,16 +1130,16 @@ class DeepFM(object):
             try:
                 valid_dict.update(sess.run(self.ori_feed_dict))
                 batch_cnt += 1
-                t1 = time.time()
-                pred_,label_ = sess.run([self.pred,self.label_op],valid_dict)
+                toRun = [self.pred,self.label_op]# + self.tfPrints
+                result = sess.run(toRun,valid_dict)
+                pred_,label_ = result[:2]
                 pred_deque.extend(pred_)
                 label_deque.extend(label_)
             except tf.errors.OutOfRangeError:
                 sys.stdout.write("\n")
                 sys.stdout.flush()
                 break
-            delta_t = time.time() - t1
-            sys.stdout.write("    valid_batch_cnt: [{batch_cnt:0>3d}] [{delta_t:.2f}s/per]\r".format(batch_cnt=batch_cnt,delta_t=delta_t))
+            sys.stdout.write("    valid_batch_cnt: [{batch_cnt:0>3d}]\r".format(batch_cnt=batch_cnt))
             sys.stdout.flush()
         pred_arr = np.array(pred_deque)
         label_arr = np.array(label_deque)
@@ -1127,10 +1156,15 @@ class DeepFM(object):
         pass
 
     def fit(self):
-        train_feed={self.train_phase:True, self.inp_tfrecord_path:self.train_tfrecord_file}
-        valid_feed={self.train_phase:False, self.inp_tfrecord_path:self.valid_tfrecord_file}
+        train_feed={self.train_phase:True, 
+                    self.dropout_keep_fm:self.dropout_fm,
+                    self.dropout_keep_deep:self.dropout_deep,
+                    self.inp_tfrecord_path:self.train_tfrecord_file}
+        valid_feed={self.train_phase:False, 
+                    self.dropout_keep_fm:[1.0]*len(self.dropout_fm),
+                    self.dropout_keep_deep:[1.0]*len(self.dropout_deep),
+                    self.inp_tfrecord_path:self.valid_tfrecord_file}
         # 不适用self.sess,因为必须在with结构内触发保存模型才能存住variable
-        # 如果使用 with self.sess as sess，则with结束后self.sess直接销毁了，没有意义
         model_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
         model_config.gpu_options.allow_growth = True
         sess = tf.Session(graph=self.graph,config=model_config)
@@ -1141,26 +1175,25 @@ class DeepFM(object):
                 epoch_cnt += 1
                 batch_cnt = 0
                 sess.run(self.inp_iterator.initializer,train_feed)
+                logloss_list = deque()
                 t0=time.time()
                 while True:
                     try:
                         batch_cnt += 1
                         global_batch_cnt += 1
-                        # 加上代表placeholder和其value的键值 | train_feed目前只有train_phase和tfrecord_path这些外部参数
                         train_feed.update(sess.run(self.ori_feed_dict))
-                        run_ops=[self.optimize_op,self.loss_op,self.pred,self.label_op,self.merge_summary]
+                        run_ops=[self.optimize_op,self.loss_op,self.pred,self.label_op,self.merge_summary]# + self.tfPrints
                         run_result = sess.run(run_ops,train_feed)
-                        _,loss_,pred_,label_,merge_summary_ = run_result
+                        _,loss_,pred_,label_,merge_summary_ = run_result[:5]
+                        logloss_list.append(loss_)
                         self.writer.add_summary(merge_summary_,global_batch_cnt)
-#                         if batch_cnt % 10 == 0:
-#                             log(sess.run(self.weights["feature_embeddings"][0,:]))
                         if batch_cnt % 100 == 0:
-                            auc = roc_auc_score(label_,pred_)
+                            pos_neg_ratio = int(np.sum(label_==0)/np.sum(label_==1)) if np.sum(label_==1) !=0 else "inf"
+                            auc = roc_auc_score(label_,pred_) if np.sum(label_==1) !=0 else 0
                             batch_time = time.time()-t0
-                            log("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d}] logloss:[{loss_:.5f}] auc:[{auc:.5f}] [{batch_time:.1f}s]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,loss_=loss_,auc=auc,batch_time=batch_time))
+                            myprint("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d}] logloss:[{loss_:.5f}] auc:[{auc:.5f}] pos_neg:[1:{pos_neg}] [{batch_time:.1f}s]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,loss_=loss_,auc=auc,pos_neg=pos_neg_ratio,batch_time=batch_time))
                             t0=time.time()
-                        # 存在严重缺陷导致不能在中途显示验证集auc logloss，
-                        # 这里如果用valid初始化iterator后，从1001batch开始都会从valid里面拿数据了
+                        # 存在严重缺陷，这里如果用valid初始化后，从1001batch开始都会从valid里面拿数据了
             #             if batch_cnt % 1000 ==0:
             #                 sess.run(inp_iterator.initializer,valid_dict)
             #                 logloss,auc=_evaluate(sess,valid_feed)
@@ -1168,20 +1201,20 @@ class DeepFM(object):
             #                 print(f"{now} [e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d} valid] logloss:[{logloss:.5f}] auc:[{auc:.5f}]")
                     except tf.errors.OutOfRangeError:
                         break
-                log("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d}] epoch-done".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt))
+                myprint("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d}] epoch-done. avg-logloss:[{logloss:.5f}]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,logloss=sum(logloss_list)/len(logloss_list)),verbose=True)
                 sess.run(self.inp_iterator.initializer,valid_feed)
                 logloss,auc=self._evaluate(sess,valid_feed)
-                log("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d} valid] valid_logloss:[{logloss:.5f}] valid_auc:[{auc:.5f}]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,logloss=logloss,auc=auc))
+                myprint("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d} valid] valid_logloss:[{logloss:.5f}] valid_auc:[{auc:.5f}]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,logloss=logloss,auc=auc))
+                print("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d} valid] valid_logloss:[{logloss:.5f}] valid_auc:[{auc:.5f}]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,logloss=logloss,auc=auc))
                 if global_auc<auc:
                     global_auc = auc
-                    log("logloss:[{logloss:.5f}] auc:[{auc:.5f}] global_batch_cnt:[{global_batch_cnt:0>4d}] gonna save model ...".format(logloss=logloss,auc=auc,global_batch_cnt=global_batch_cnt))
+                    myprint("logloss:[{logloss:.5f}] auc:[{auc:.5f}] global_batch_cnt:[{global_batch_cnt:0>4d}] gonna save model ...".format(logloss=logloss,auc=auc,global_batch_cnt=global_batch_cnt))
                     self._simple_save(sess,self.model_save_dir,self.inputs_dict,self.outputs_dict,global_batch_cnt,auc)
 
 
 # ## Train |
 
-# In[24]:
-
+# In[8]:
 
 process = DeepFM(CONFIG.train_tfrecord_file,CONFIG.valid_tfrecord_file,CONFIG.random_seed,CONFIG.base_save_dir,CONFIG.deepfm_param_dicts,CONFIG.data_param_dicts)
 
