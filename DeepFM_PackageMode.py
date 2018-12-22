@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[17]:
 
 
 import tensorflow as tf
@@ -98,6 +98,7 @@ CONFIG = config_midas()
 
 
 # In[4]:
+
 
 
 # 输出一下参数
@@ -1214,7 +1215,6 @@ class DeepFM(object):
 # ## Train |
 
 # In[8]:
-
 
 process = DeepFM(CONFIG.train_tfrecord_file,CONFIG.valid_tfrecord_file,CONFIG.random_seed,CONFIG.base_save_dir,CONFIG.deepfm_param_dicts,CONFIG.data_param_dicts)
 
