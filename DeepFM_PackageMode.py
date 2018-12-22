@@ -1200,7 +1200,7 @@ class DeepFM(object):
             #                 print(f"{now} [e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d} valid] logloss:[{logloss:.5f}] auc:[{auc:.5f}]")
                     except tf.errors.OutOfRangeError:
                         break
-                myprint("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d}] epoch-done. avg-logloss:[logloss:.5f]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,logloss=sum(logloss_list)/len(logloss_list)),verbose=True)
+                myprint("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d}] epoch-done. avg-logloss:[{logloss:.5f}]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,logloss=sum(logloss_list)/len(logloss_list)),verbose=True)
                 sess.run(self.inp_iterator.initializer,valid_feed)
                 logloss,auc=self._evaluate(sess,valid_feed)
                 myprint("[e:{epoch_cnt:0>2d}|b:{batch_cnt:0>4d} valid] valid_logloss:[{logloss:.5f}] valid_auc:[{auc:.5f}]".format(epoch_cnt=epoch_cnt,batch_cnt=batch_cnt,logloss=logloss,auc=auc))
